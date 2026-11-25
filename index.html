@@ -115,6 +115,15 @@ p{margin:0}
 .prim:disabled,.sec:disabled{opacity:.5}
 .panel3{display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:22px;background:var(--surface)}
 .panel3 p{font-size:15px;color:var(--muted)}
+.vidbtn{min-height:64px;font-size:19px}
+
+/* video maker: full-screen sheet with the live preview */
+.vid{position:fixed;inset:0;z-index:10;background:rgba(5,5,8,.94);display:flex;align-items:center;justify-content:center;padding:max(14px,env(safe-area-inset-top)) 16px max(14px,env(safe-area-inset-bottom))}
+.vidin{width:100%;max-width:420px;max-height:100%;display:flex;flex-direction:column;align-items:center;gap:14px}
+#vcv{height:min(58vh,560px);aspect-ratio:9/16;width:auto;max-width:100%;border-radius:18px;background:var(--surface);box-shadow:0 10px 40px rgba(0,0,0,.5)}
+.vprogbar{width:100%;height:8px;border-radius:4px;background:var(--surface2);overflow:hidden}
+.vprogbar i{display:block;height:100%;width:0;background:var(--accent)}
+.vidin .pair{width:100%}
 
 /* beat dots */
 #b-viz{display:flex;flex-direction:column;gap:14px;padding:18px 16px;border-radius:22px;background:var(--surface)}
@@ -266,9 +275,10 @@ select{font:inherit;font-weight:650;color:var(--text);width:100%;min-height:48px
         <button data-f="2">Double<small id="tf2">188</small></button>
       </div>
     </div>
+    <button class="prim vidbtn" id="m-vid">🎬 Créer ma vidéo</button>
     <div class="pair">
-      <button class="prim" id="m-dl">Télécharger</button>
-      <button class="sec" id="m-share">Partager</button>
+      <button class="sec" id="m-dl">Télécharger</button>
+      <button class="sec" id="m-share">Partager le son</button>
     </div>
     <details class="more">
       <summary>Plus d'options</summary>
@@ -396,9 +406,10 @@ select{font:inherit;font-weight:650;color:var(--text);width:100%;min-height:48px
       <button data-k="chip">8 bits</button>
     </div>
     <button class="sec" id="b-again">Recommencer</button>
+    <button class="prim vidbtn" id="b-vid">🎬 Créer ma vidéo</button>
     <div class="pair">
-      <button class="prim" id="b-dl">Télécharger</button>
-      <button class="sec" id="b-share">Partager</button>
+      <button class="sec" id="b-dl">Télécharger</button>
+      <button class="sec" id="b-share">Partager le son</button>
     </div>
     <details class="more">
       <summary>Plus d'options</summary>
@@ -432,6 +443,20 @@ select{font:inherit;font-weight:650;color:var(--text);width:100%;min-height:48px
     </details>
   </section>
 </main>
+
+<!-- ===== Video maker ===== -->
+<div class="vid" id="vid" hidden role="dialog" aria-modal="true" aria-label="Ta vidéo">
+  <div class="vidin">
+    <canvas id="vcv" width="720" height="1280"></canvas>
+    <div class="vprogbar" aria-hidden="true"><i id="vprog"></i></div>
+    <p class="msg" id="vmsg" role="status"></p>
+    <div class="pair" id="vbtns" hidden>
+      <button class="prim" id="v-share">Partager</button>
+      <button class="sec" id="v-dl">Enregistrer</button>
+    </div>
+    <button class="link" id="v-close">Fermer</button>
+  </div>
+</div>
 
 <script id="beatdsp">
 /* Beatbox detection: onsets from the energy envelope, then kick / snare / hat from the spectrum of each hit. */
@@ -2153,6 +2178,140 @@ const DSP = (function(){
     }catch(err){ say('Le son n\'a pas pu être fabriqué ('+(err&&err.message||'erreur')+').',true); }
   }
 
+  /* ---------- video: a 9:16 clip of the track, ready for TikTok / Instagram / WhatsApp ---------- */
+  const V={busy:false,blob:null,name:'',stopFn:null};
+  const vcv=$('vcv'), vg=vcv.getContext('2d');
+  const VF='-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif';
+  function vidType(){
+    if(!window.MediaRecorder) return null;
+    for(const t of ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'])
+      try{ if(MediaRecorder.isTypeSupported(t)) return t; }catch(e){}
+    return null;
+  }
+  function vmsg(m,kind){ const el=$('vmsg'); el.textContent=m||''; el.classList.toggle('err',kind===true); el.classList.toggle('warn',kind==='warn'); }
+  function rr(x,y,w,h,r){ vg.beginPath(); vg.moveTo(x+r,y); vg.arcTo(x+w,y,x+w,y+h,r); vg.arcTo(x+w,y+h,x,y+h,r); vg.arcTo(x,y+h,x,y,r); vg.arcTo(x,y,x+w,y,r); vg.closePath(); }
+  // One frame. pos: sixteenth steps since the start (spans loops), -1 before the start. p: overall progress 0..1.
+  function vidFrame(kind,pos,p){
+    const W=720,H=1280,A=css('--accent')||'#c8ff2e';
+    const total=kind==='beat'?BB.gbars*16:S.total, cur=pos<0?-1:pos%total, step=Math.floor(cur);
+    const kOn=step>=0&&(kind==='beat'?BB.grid.k[step]:S.mode==='full'&&S.on.drums&&S.drums.k[step%16]);
+    const punch=kOn?Math.max(0,1-(cur-step)*1.6):0;
+    const bg=vg.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#0a0a0f'); bg.addColorStop(1,'#17171f'); vg.fillStyle=bg; vg.fillRect(0,0,W,H);
+    const gl=vg.createRadialGradient(W/2,640,20,W/2,640,520+punch*90); gl.addColorStop(0,'rgba(200,255,46,'+(0.09+punch*0.17)+')'); gl.addColorStop(1,'rgba(200,255,46,0)');
+    vg.fillStyle=gl; vg.fillRect(0,0,W,H);
+    vg.textBaseline='alphabetic';
+    vg.font='800 30px '+VF; const t1='CHANTE TON ', w1=vg.measureText(t1).width, w2=vg.measureText('BEAT').width, xs=W/2-(w1+w2)/2;
+    vg.textAlign='left'; vg.fillStyle='#9c9cb0'; vg.fillText(t1,xs,120); vg.fillStyle=A; vg.fillText('BEAT',xs+w1,120);
+    vg.textAlign='center'; vg.fillStyle='#f5f5f8'; vg.font='850 80px '+VF;
+    vg.fillText(kind==='beat'?'Mon beat':'Mon son',W/2,235);
+    vg.font='600 30px '+VF; vg.fillStyle='#9c9cb0';
+    vg.fillText(kind==='beat'?Math.round(BB.bpm)+' BPM · fait avec ma bouche':STYLES[S.style].name+' · '+Math.round(S.bpm)+' BPM · '+NOTE_FR[S.key.tonic]+(S.key.minor?' mineur':' majeur'),W/2,288);
+    const px=40, py=360, pw=W-80, ph=560; rr(px,py,pw,ph,36); vg.fillStyle='rgba(21,21,29,.92)'; vg.fill();
+    if(kind==='beat') vidBeat(px,py,pw,ph,cur,A); else vidMelody(px,py,pw,ph,cur,A);
+    vg.textAlign='center'; vg.textBaseline='alphabetic';
+    vg.fillStyle='#f5f5f8'; vg.font='700 38px '+VF; vg.fillText(kind==='beat'?'Fais ton beat avec ta bouche':'Chante, on en fait un morceau',W/2,1040);
+    vg.fillStyle=A; vg.font='850 66px '+VF; vg.fillText(location.host||'mekuvo.com',W/2,1132);
+    rr(80,1190,W-160,8,4); vg.fillStyle='#2d2d3b'; vg.fill();
+    if(p>0){ rr(80,1190,Math.max(8,(W-160)*Math.min(1,p)),8,4); vg.fillStyle=A; vg.fill(); }
+  }
+  function vidMelody(px,py,pw,ph,cur,A){
+    const notes=S.notes, total=S.total, x0=px+24, w=pw-48, top=py+80, h=ph-110, X=i=>x0+i/total*w;
+    const bars=total/16, every=bars>8?2:1;
+    vg.font='700 26px '+VF; vg.textAlign='left'; vg.textBaseline='alphabetic';
+    for(let b=0;b<bars;b++){
+      const x=X(b*16); vg.fillStyle='#2d2d3b'; vg.fillRect(x,top-12,2,h+12);
+      const c=S.chords[b]; if(c && b%every===0){ vg.fillStyle=cur>=0&&Math.floor(cur/16)===b?'#f5f5f8':'#7c7c90'; vg.fillText(NOTE_EN[c.root]+(c.minor?'m':''),x+10,py+52); }
+    }
+    if(!notes.length) return;
+    let lo=1e9,hi=-1e9; for(const n of notes){ lo=Math.min(lo,n.midi); hi=Math.max(hi,n.midi); }
+    lo-=2; hi+=2; if(hi-lo<12){ const a=(12-(hi-lo))/2; lo-=a; hi+=a; }
+    const rh=h/(hi-lo+1), Y=m=>top+(hi-m)*rh;
+    for(const n of notes){
+      const on=cur>=n.start&&cur<n.start+n.len, past=cur>=n.start+n.len;
+      const x=X(n.start), ww=Math.max(6,X(n.start+n.len)-x-3), hh=Math.max(8,rh-4);
+      if(on){ vg.shadowColor=A; vg.shadowBlur=34; }
+      rr(x,Y(n.midi)+2,ww,hh,Math.min(8,hh/2)); vg.fillStyle=on?'#ffffff':past?A:'rgba(200,255,46,.45)'; vg.fill();
+      vg.shadowBlur=0;
+    }
+    if(cur>=0){ vg.fillStyle='#ffffff'; vg.fillRect(X(cur)-2,top-12,4,h+12); }
+  }
+  function vidBeat(px,py,pw,ph,cur,A){
+    const step=cur<0?-1:Math.floor(cur), frac=cur-step, bar=step<0?0:Math.floor(step/16);
+    const rows=[['k','BOUM'],['s','TCHI'],['h','TSS']];
+    vg.textAlign='center'; vg.textBaseline='middle';
+    rows.forEach(([r,lab],i)=>{   // three pads that flash on each hit
+      const a=step>=0&&BB.grid[r][step]?Math.max(0,1-frac*1.3):0, cx=px+pw*(i+0.5)/3, cy=py+150;
+      vg.beginPath(); vg.arc(cx,cy,76+a*14,0,2*Math.PI); vg.fillStyle=a>0?'rgba(200,255,46,'+(0.3+0.7*a)+')':'#1f1f2a'; vg.fill();
+      vg.fillStyle=a>0.45?'#0a0a0f':'#f5f5f8'; vg.font='850 32px '+VF; vg.fillText(lab,cx,cy);
+    });
+    const x0=px+40, gap=(pw-80)/16, y0=py+320;
+    rows.forEach(([r],i)=>{ for(let s=0;s<16;s++){
+      const idx=bar*16+s, on=BB.grid[r][idx], now=idx===step;
+      vg.beginPath(); vg.arc(x0+gap*(s+0.5),y0+i*70,now?15:12,0,2*Math.PI);
+      vg.fillStyle=on?(now?'#ffffff':A):(now?'#5a5a70':s%4===0?'#34344a':'#26263a'); vg.fill();
+    } });
+    if(BB.gbars>1){ vg.fillStyle='#9c9cb0'; vg.font='600 24px '+VF; vg.fillText('Mesure '+(bar+1)+' / '+BB.gbars,px+pw/2,py+ph-34); }
+    vg.textBaseline='alphabetic';
+  }
+  async function makeVideo(kind){
+    if(V.busy) return;
+    try{ unlockSound(); ensureCtx(); const p=ctx.resume(); if(p&&p.catch) p.catch(()=>{}); }catch(e){}
+    if(playing) stop(); if(BB.playing) bbStop();
+    V.blob=null; $('vid').hidden=false; $('vbtns').hidden=true; $('vprog').style.width='0';
+    vidFrame(kind,-1,0);
+    const type=vidType();
+    if(!type || !vcv.captureStream || !ctx || !ctx.createMediaStreamDestination){ vmsg('Ce navigateur ne sait pas fabriquer de vidéo. Essaie avec Safari ou Chrome à jour.',true); return; }
+    V.busy=true; vmsg('Fabrication du son…');
+    let buf;
+    try{ buf=kind==='beat'?await renderBeat():await renderSong(); }catch(err){ V.busy=false; vmsg('Le son n\'a pas pu être fabriqué.',true); return; }
+    if($('vid').hidden){ V.busy=false; return; }
+    let peak=0; for(let c=0;c<buf.numberOfChannels;c++){ const d=buf.getChannelData(c); for(let i=0;i<d.length;i+=2){ const a=Math.abs(d[i]); if(a>peak) peak=a; } }
+    const dest=ctx.createMediaStreamDestination(), src=ctx.createBufferSource(), g=ctx.createGain();
+    src.buffer=buf; g.gain.value=peak>0?Math.min(4,0.89/peak):1;   // same loudness as the WAV file
+    src.connect(g); g.connect(dest); g.connect(ctx.destination);
+    const vs=vcv.captureStream(30), stream=new MediaStream([...vs.getVideoTracks(),...dest.stream.getAudioTracks()]);
+    let mr;
+    try{ mr=new MediaRecorder(stream,{mimeType:type,videoBitsPerSecond:4000000,audioBitsPerSecond:160000}); }
+    catch(e){ try{ mr=new MediaRecorder(stream); }catch(e2){ V.busy=false; vmsg('La vidéo ne peut pas être enregistrée sur ce navigateur.',true); return; } }
+    const chunks=[]; mr.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
+    const done=new Promise(res=>{ mr.onstop=res; });
+    const sd=kind==='beat'?60/BB.bpm/4:stepDur(), dur=buf.duration;
+    let cancelled=false, raf=0;
+    V.stopFn=()=>{ cancelled=true; try{ src.stop(); }catch(e){} try{ if(mr.state!=='inactive') mr.stop(); }catch(e){} };
+    vmsg('Enregistrement de ta vidéo… garde cet écran ouvert.');
+    mr.start(250);
+    const t0=ctx.currentTime+0.15; src.start(t0);
+    const loop=()=>{
+      const t=ctx.currentTime-t0;
+      vidFrame(kind,t<0.05?-1:(t-0.05)/sd,Math.max(0,t/dur));
+      $('vprog').style.width=Math.min(100,Math.max(0,t/dur*100))+'%';
+      if(t<dur && !cancelled) raf=requestAnimationFrame(loop);
+      else { try{ if(mr.state!=='inactive') mr.stop(); }catch(e){} }
+    };
+    raf=requestAnimationFrame(loop);
+    const guard=setTimeout(()=>{ try{ if(mr.state!=='inactive') mr.stop(); }catch(e){} },(dur+2)*1000);   // in case frames stall
+    await done; clearTimeout(guard); cancelAnimationFrame(raf);
+    try{ src.disconnect(); g.disconnect(); }catch(e){}
+    vs.getTracks().forEach(t=>t.stop());
+    V.busy=false; V.stopFn=null;
+    if(cancelled) return;
+    const mt=(mr.mimeType||type).split(';')[0];
+    V.blob=new Blob(chunks,{type:mt}); V.name=(kind==='beat'?'mon-beat':'chante-ton-beat')+(mt.includes('mp4')?'.mp4':'.webm');
+    $('vprog').style.width='100%'; $('vbtns').hidden=false;
+    vmsg('Ta vidéo est prête ! Partage-la sur TikTok, Insta ou WhatsApp.');
+  }
+  async function vidShare(){
+    if(!V.blob) return;
+    const file=new File([V.blob],V.name,{type:V.blob.type});
+    if(navigator.canShare && navigator.share && navigator.canShare({files:[file]})){
+      try{ await navigator.share({files:[file],title:'Chante ton beat'}); vmsg('Partagé !'); return; }
+      catch(e){ if(e&&e.name==='AbortError') return; }
+    }
+    download(V.blob,V.name);
+    vmsg('Partage direct indisponible ici : la vidéo est enregistrée, publie-la depuis tes fichiers.','warn');
+  }
+  function vidClose(){ if(V.stopFn) V.stopFn(); $('vid').hidden=true; vmsg(''); }
+
   /* beat: dots that light up with the loop */
   function bbViz(){
     const el=$('b-viz'); if(!el||!BB.grid) return;
@@ -2219,8 +2378,14 @@ const DSP = (function(){
   $('b-again').addEventListener('click',()=>go('brec'));
   $('b-dl').addEventListener('click',bbExportWav);
   $('b-share').addEventListener('click',()=>shareFile(beatBlob,()=>beatCache&&beatCache.sig===beatSig(),'mon-beat.wav'));
+  $('m-vid').addEventListener('click',()=>makeVideo('song'));
+  $('b-vid').addEventListener('click',()=>makeVideo('beat'));
+  $('v-share').addEventListener('click',vidShare);
+  $('v-dl').addEventListener('click',()=>{ if(V.blob){ download(V.blob,V.name); vmsg('Vidéo enregistrée : '+V.name); } });
+  $('v-close').addEventListener('click',vidClose);
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape' && !$('vid').hidden) vidClose(); });
   loadSamples();
-  window.__ctb={smp:()=>Object.keys(SMP),scr:()=>scr,clarity:()=>tempoClarity(S.raw),render:renderSong,setHear,SMP,S,BB};
+  window.__ctb={smp:()=>Object.keys(SMP),scr:()=>scr,clarity:()=>tempoClarity(S.raw),render:renderSong,setHear,SMP,V,S,BB};
 
 
   window.addEventListener('resize',()=>draw(position()));
