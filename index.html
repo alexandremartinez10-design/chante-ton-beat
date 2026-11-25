@@ -2309,8 +2309,10 @@ const DSP = (function(){
     vs.getTracks().forEach(t=>t.stop());
     V.busy=false; V.stopFn=null;
     if(cancelled) return;
-    const mt=(mr.mimeType||type).split(';')[0];
-    vidReady(new Blob(chunks,{type:mt}),mt,kind);
+    const mt=(mr.mimeType||type).split(';')[0], blob=new Blob(chunks,{type:mt});
+    const snd=await hasSound(blob);
+    vidReady(blob,mt,kind);
+    if(snd===false) vmsg('Vidéo prête, mais sans le son : ton navigateur n\'a pas su l\'ajouter. Mets ton téléphone à jour (iOS 26 ou plus).','warn');
   }
   function vidReady(blob,mt,kind){
     V.blob=blob; V.name=(kind==='beat'?'mon-beat':'chante-ton-beat')+(mt.includes('mp4')?'.mp4':'.webm');
@@ -2333,6 +2335,22 @@ const DSP = (function(){
     });
     return muxLoad;
   }
+  // AudioSpecificConfig for AAC-LC (2 bytes): object type 2, sample-rate index, channel count
+  function aacConfig(sr,ch){
+    const RATES=[96000,88200,64000,48000,44100,32000,24000,22050,16000,12000,11025,8000,7350];
+    let fi=RATES.indexOf(sr); if(fi<0) fi=4;
+    return new Uint8Array([(2<<3)|(fi>>1),((fi&1)<<7)|(ch<<3)]);
+  }
+  // Decodes the sound of a finished video: true when it is audible, false when silent or unreadable, null when this browser cannot tell.
+  async function hasSound(blob){
+    const OC=window.OfflineAudioContext||window.webkitOfflineAudioContext; if(!OC) return null;
+    let ab; try{ ab=await blob.arrayBuffer(); }catch(e){ return null; }
+    try{
+      const buf=await new Promise((res,rej)=>{ const p=new OC(1,2,44100).decodeAudioData(ab,res,rej); if(p&&p.catch) p.catch(rej); });
+      let peak=0; for(let c=0;c<buf.numberOfChannels;c++){ const d=buf.getChannelData(c); for(let i=0;i<d.length;i+=7){ const a=Math.abs(d[i]); if(a>peak) peak=a; } }
+      return peak>0.01;
+    }catch(e){ return false; }
+  }
   async function mp4Codecs(sr,ch){
     if(!window.VideoEncoder||!window.AudioEncoder||!window.VideoFrame||!window.AudioData) return null;
     let video=null;
@@ -2341,7 +2359,7 @@ const DSP = (function(){
       try{ const r=await VideoEncoder.isConfigSupported(c); if(r&&r.supported){ video=c; break; } }catch(e){}
     }
     if(!video) return null;
-    const audio={codec:'mp4a.40.2',sampleRate:sr,numberOfChannels:ch,bitrate:160000};   // AAC-LC
+    const audio={codec:'mp4a.40.2',sampleRate:sr,numberOfChannels:ch,bitrate:160000,aac:{format:'aac'}};   // AAC-LC, raw frames
     try{ const r=await AudioEncoder.isConfigSupported(audio); if(!r||!r.supported) return null; }catch(e){ return null; }
     return {video,audio};
   }
@@ -2352,9 +2370,18 @@ const DSP = (function(){
     const target=new M.ArrayBufferTarget();
     const muxer=new M.Muxer({target,video:{codec:'avc',width:720,height:1280,frameRate:FPS},audio:{codec:'aac',numberOfChannels:ch,sampleRate:sr},
       fastStart:'in-memory',firstTimestampBehavior:'offset'});
-    let fail=null;
+    let fail=null, aCount=0;
     const ve=new VideoEncoder({output:(c,m)=>muxer.addVideoChunk(c,m),error:e=>{ fail=e; }});
-    const ae=new AudioEncoder({output:(c,m)=>muxer.addAudioChunk(c,m),error:e=>{ fail=e; }});
+    // The AAC header is written here rather than taken from the encoder: Safari's one is wrong (WebKit bug 302253)
+    // and gives a video with no sound anywhere.
+    const ameta={decoderConfig:{codec:'mp4a.40.2',sampleRate:sr,numberOfChannels:ch,description:aacConfig(sr,ch)}};
+    const ae=new AudioEncoder({output:c=>{
+      const d=new Uint8Array(c.byteLength); c.copyTo(d);
+      let p=d;
+      if(d.length>9 && d[0]===0xFF && (d[1]&0xF6)===0xF0) p=d.slice((d[1]&1)?7:9);   // ADTS frame: keep the raw AAC only
+      const du=Number.isFinite(c.duration)&&c.duration>0?c.duration:Math.round(1024/sr*1e6);
+      muxer.addAudioChunkRaw(p,c.type==='delta'?'delta':'key',c.timestamp,du,aCount++===0?ameta:undefined);
+    },error:e=>{ fail=e; }});
     const shut=()=>{ try{ ve.close(); }catch(e){} try{ ae.close(); }catch(e){} };
     try{
       ve.configure(cfg.video); ae.configure(cfg.audio);
@@ -2380,9 +2407,12 @@ const DSP = (function(){
       }
       await ve.flush(); await ae.flush();
       if(fail) throw fail;
+      if(!aCount) throw new Error('aucun son encodé');
       shut();
       muxer.finalize();
-      return new Blob([target.buffer],{type:'video/mp4'});
+      const blob=new Blob([target.buffer],{type:'video/mp4'});
+      if(await hasSound(blob)===false) throw new Error('vidéo muette');   // fall back to the live recording
+      return blob;
     }catch(err){ shut(); throw err; }
   }
   async function vidShare(){
