@@ -2257,15 +2257,31 @@ const DSP = (function(){
     if(playing) stop(); if(BB.playing) bbStop();
     V.blob=null; $('vid').hidden=false; $('vbtns').hidden=true; $('vprog').style.width='0';
     vidFrame(kind,-1,0);
-    const type=vidType();
-    if(!type || !vcv.captureStream || !ctx || !ctx.createMediaStreamDestination){ vmsg('Ce navigateur ne sait pas fabriquer de vidéo. Essaie avec Safari ou Chrome à jour.',true); return; }
+    const type=vidType(), canRec=!!(type && vcv.captureStream && ctx && ctx.createMediaStreamDestination);
+    if(!canRec && !window.VideoEncoder){ vmsg('Ce navigateur ne sait pas fabriquer de vidéo. Mets à jour Safari ou Chrome.',true); return; }
     V.busy=true; vmsg('Fabrication du son…');
     let buf;
     try{ buf=kind==='beat'?await renderBeat():await renderSong(); }catch(err){ V.busy=false; vmsg('Le son n\'a pas pu être fabriqué.',true); return; }
     if($('vid').hidden){ V.busy=false; return; }
     let peak=0; for(let c=0;c<buf.numberOfChannels;c++){ const d=buf.getChannelData(c); for(let i=0;i<d.length;i+=2){ const a=Math.abs(d[i]); if(a>peak) peak=a; } }
+    const gain=peak>0?Math.min(4,0.89/peak):1;   // same loudness as the WAV file
+    // First choice: a real MP4 file (H.264 + AAC) encoded frame by frame, the format Instagram, TikTok and phone galleries expect.
+    const cfg=await mp4Codecs(buf.sampleRate,Math.min(2,buf.numberOfChannels));
+    if(cfg){
+      try{
+        const blob=await encodeMp4(kind,buf,gain,cfg);
+        V.busy=false;
+        if(blob) vidReady(blob,'video/mp4',kind);
+        return;
+      }catch(err){
+        try{ console.warn('encodage MP4 impossible, enregistrement en direct',err); }catch(e){}
+        if($('vid').hidden){ V.busy=false; return; }
+      }
+    }
+    // Fallback: record the canvas and the sound in real time.
+    if(!canRec){ V.busy=false; vmsg('Ce navigateur ne sait pas fabriquer de vidéo. Mets à jour Safari ou Chrome.',true); return; }
     const dest=ctx.createMediaStreamDestination(), src=ctx.createBufferSource(), g=ctx.createGain();
-    src.buffer=buf; g.gain.value=peak>0?Math.min(4,0.89/peak):1;   // same loudness as the WAV file
+    src.buffer=buf; g.gain.value=gain;
     src.connect(g); g.connect(dest); g.connect(ctx.destination);
     const vs=vcv.captureStream(30), stream=new MediaStream([...vs.getVideoTracks(),...dest.stream.getAudioTracks()]);
     let mr;
@@ -2294,9 +2310,80 @@ const DSP = (function(){
     V.busy=false; V.stopFn=null;
     if(cancelled) return;
     const mt=(mr.mimeType||type).split(';')[0];
-    V.blob=new Blob(chunks,{type:mt}); V.name=(kind==='beat'?'mon-beat':'chante-ton-beat')+(mt.includes('mp4')?'.mp4':'.webm');
+    vidReady(new Blob(chunks,{type:mt}),mt,kind);
+  }
+  function vidReady(blob,mt,kind){
+    V.blob=blob; V.name=(kind==='beat'?'mon-beat':'chante-ton-beat')+(mt.includes('mp4')?'.mp4':'.webm');
     $('vprog').style.width='100%'; $('vbtns').hidden=false;
-    vmsg('Ta vidéo est prête ! Partage-la sur TikTok, Insta ou WhatsApp.');
+    vmsg(mt.includes('mp4')?'Ta vidéo est prête ! Partage-la sur TikTok, Insta ou WhatsApp.'
+      :'Vidéo prête, mais dans un format (WebM) que certaines applis refusent. Mets ton navigateur à jour pour un MP4.', mt.includes('mp4')?false:'warn');
+  }
+
+  /* real MP4 encoding with WebCodecs + a small MP4 muxer (MIT, loaded only when a video is made) */
+  let muxLoad=null;
+  function loadMuxer(){
+    if(window.Mp4Muxer) return Promise.resolve(window.Mp4Muxer);
+    if(!muxLoad) muxLoad=new Promise((res,rej)=>{
+      const s=document.createElement('script');
+      s.src='https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.js';
+      s.integrity='sha384-wr0AQH9RBAKio/g7bHM5245MBCU5B/b0Y9u42cTxRYQQJXKEijZvWEJKL9JG26hs'; s.crossOrigin='anonymous';
+      s.onload=()=>window.Mp4Muxer?res(window.Mp4Muxer):rej(new Error('muxer absent'));
+      s.onerror=()=>{ muxLoad=null; rej(new Error('muxer non chargé')); };
+      document.head.appendChild(s);
+    });
+    return muxLoad;
+  }
+  async function mp4Codecs(sr,ch){
+    if(!window.VideoEncoder||!window.AudioEncoder||!window.VideoFrame||!window.AudioData) return null;
+    let video=null;
+    for(const codec of ['avc1.42001f','avc1.4d001f','avc1.640028']){   // H.264 baseline, main, high
+      const c={codec,width:720,height:1280,bitrate:3500000,framerate:30,avc:{format:'avc'}};
+      try{ const r=await VideoEncoder.isConfigSupported(c); if(r&&r.supported){ video=c; break; } }catch(e){}
+    }
+    if(!video) return null;
+    const audio={codec:'mp4a.40.2',sampleRate:sr,numberOfChannels:ch,bitrate:160000};   // AAC-LC
+    try{ const r=await AudioEncoder.isConfigSupported(audio); if(!r||!r.supported) return null; }catch(e){ return null; }
+    return {video,audio};
+  }
+  // Returns the MP4 blob, or null when the user closed the sheet.
+  async function encodeMp4(kind,buf,gain,cfg){
+    const M=await loadMuxer();
+    const sr=cfg.audio.sampleRate, ch=cfg.audio.numberOfChannels, FPS=30;
+    const target=new M.ArrayBufferTarget();
+    const muxer=new M.Muxer({target,video:{codec:'avc',width:720,height:1280,frameRate:FPS},audio:{codec:'aac',numberOfChannels:ch,sampleRate:sr},
+      fastStart:'in-memory',firstTimestampBehavior:'offset'});
+    let fail=null;
+    const ve=new VideoEncoder({output:(c,m)=>muxer.addVideoChunk(c,m),error:e=>{ fail=e; }});
+    const ae=new AudioEncoder({output:(c,m)=>muxer.addAudioChunk(c,m),error:e=>{ fail=e; }});
+    const shut=()=>{ try{ ve.close(); }catch(e){} try{ ae.close(); }catch(e){} };
+    try{
+      ve.configure(cfg.video); ae.configure(cfg.audio);
+      const n=buf.length, B=4096, chans=[]; for(let c=0;c<ch;c++) chans.push(buf.getChannelData(Math.min(c,buf.numberOfChannels-1)));
+      for(let o=0;o<n;o+=B){
+        const len=Math.min(B,n-o), data=new Float32Array(len*ch);
+        for(let c=0;c<ch;c++){ const s=chans[c], base=c*len; for(let i=0;i<len;i++){ const v=s[o+i]*gain; data[base+i]=v>1?1:v<-1?-1:v; } }
+        const ad=new AudioData({format:'f32-planar',sampleRate:sr,numberOfFrames:len,numberOfChannels:ch,timestamp:Math.round(o/sr*1e6),data});
+        ae.encode(ad); ad.close();
+        if(fail) throw fail;
+      }
+      const sd=kind==='beat'?60/BB.bpm/4:stepDur(), dur=buf.duration, frames=Math.ceil(dur*FPS);
+      vmsg('Fabrication de ta vidéo…');
+      for(let f=0;f<frames;f++){
+        if($('vid').hidden){ shut(); return null; }
+        const t=f/FPS;
+        vidFrame(kind,t<0.05?-1:(t-0.05)/sd,t/dur);
+        const vf=new VideoFrame(vcv,{timestamp:Math.round(f*1e6/FPS),duration:Math.round(1e6/FPS)});
+        ve.encode(vf,{keyFrame:f%60===0}); vf.close();
+        if(fail) throw fail;
+        if(f%4===0){ $('vprog').style.width=(f/frames*100).toFixed(1)+'%'; await pause(0); }
+        while(ve.encodeQueueSize>6) await pause(4);
+      }
+      await ve.flush(); await ae.flush();
+      if(fail) throw fail;
+      shut();
+      muxer.finalize();
+      return new Blob([target.buffer],{type:'video/mp4'});
+    }catch(err){ shut(); throw err; }
   }
   async function vidShare(){
     if(!V.blob) return;
