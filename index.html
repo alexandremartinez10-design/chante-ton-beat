@@ -58,6 +58,22 @@ p{margin:0}
 .choice b{display:block;font-size:24px;line-height:1.1;letter-spacing:-.02em}
 .choice small{display:block;font-size:15px;opacity:.7;margin-top:4px}
 .fine{font-size:14px;color:var(--muted);text-align:center}
+/* home demo: a voice wave turning into lit notes, under a sweeping playhead */
+.demo{position:relative;height:168px;border-radius:26px;background:radial-gradient(120% 90% at 75% 40%,rgba(200,255,46,.10),transparent 60%),var(--surface);border:1px solid var(--line);overflow:hidden;display:grid;grid-template-columns:1fr 1.15fr;align-items:center;gap:18px;padding:0 20px 18px}
+.demo::after{content:"";position:absolute;top:16px;bottom:30px;left:14px;width:2px;border-radius:1px;background:#fff;box-shadow:0 0 10px rgba(255,255,255,.7);animation:sweep 4s linear infinite}
+@keyframes sweep{from{left:14px}to{left:calc(100% - 16px)}}
+.demo-wave{display:flex;align-items:center;justify-content:space-between;height:100px}
+.demo-wave i{width:5px;height:calc(var(--h)*1%);border-radius:3px;background:var(--muted);opacity:.75;animation:wave 1.3s ease-in-out infinite alternate}
+.demo-wave i:nth-child(3n){animation-delay:-.4s}.demo-wave i:nth-child(3n+1){animation-delay:-.9s}.demo-wave i:nth-child(4n){animation-duration:1s}
+@keyframes wave{to{transform:scaleY(.45)}}
+.demo-roll{position:relative;height:100px}
+.demo-roll b{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1px);width:calc(var(--w)*1%);height:13px;border-radius:5px;background:rgba(200,255,46,.28);animation:lit 4s linear infinite;animation-delay:var(--d)}
+@keyframes lit{0%,100%{background:rgba(200,255,46,.28);box-shadow:none}2%,10%{background:var(--accent);box-shadow:0 0 16px rgba(200,255,46,.75)}35%{background:rgba(200,255,46,.6);box-shadow:none}}
+.demo-lab{position:absolute;bottom:10px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.demo-lab.l{left:20px}.demo-lab.r{right:20px;color:var(--accent)}
+.how{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.how li{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:18px;background:var(--surface);font-size:14px;font-weight:650;line-height:1.25}
+.how span{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--surface2);color:var(--accent);font-weight:800;font-size:14px}
 
 /* recording */
 .stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center;padding:8px 0}
@@ -160,7 +176,8 @@ select{font:inherit;font-weight:650;color:var(--text);width:100%;min-height:48px
 .status{font-size:15px;font-weight:600;color:var(--muted)}
 
 @media (prefers-reduced-motion: reduce){
-  .mic.rec,.eq i{animation:none}
+  .mic.rec,.eq i,.demo::after,.demo-wave i,.demo-roll b{animation:none}
+  .demo-roll b{background:var(--accent)}
   .choice:active,.mic:active,.playbtn:active,.sec:active,.prim:active,.seg button:active,.chip:active,.btn:active{transform:none}
 }
 </style>
@@ -171,12 +188,29 @@ select{font:inherit;font-weight:650;color:var(--text);width:100%;min-height:48px
   <!-- ===== Home ===== -->
   <section class="scr" id="s-home">
     <p class="brand">Chante ton <b>beat</b></p>
-    <h1 class="hero">Ton idée.<br><em>Ton son.</em></h1>
-    <p class="sub">Chante ou fredonne quelques secondes. On en fait un morceau à partager.</p>
+    <h1 class="hero">Chante.<br><em>On fait le son.</em></h1>
+    <p class="sub">Quelques secondes de ta voix deviennent un vrai morceau, avec la vidéo à partager.</p>
+    <div class="demo" aria-hidden="true">
+      <div class="demo-wave">
+        <i style="--h:22"></i><i style="--h:48"></i><i style="--h:70"></i><i style="--h:40"></i><i style="--h:84"></i><i style="--h:56"></i><i style="--h:30"></i>
+        <i style="--h:64"></i><i style="--h:90"></i><i style="--h:46"></i><i style="--h:72"></i><i style="--h:34"></i><i style="--h:58"></i><i style="--h:26"></i>
+      </div>
+      <div class="demo-roll">
+        <b style="--x:0;--y:70;--w:11;--d:2s"></b><b style="--x:13;--y:56;--w:11;--d:2.26s"></b><b style="--x:26;--y:40;--w:15;--d:2.52s"></b>
+        <b style="--x:43;--y:48;--w:11;--d:2.86s"></b><b style="--x:56;--y:28;--w:11;--d:3.12s"></b><b style="--x:69;--y:16;--w:11;--d:3.38s"></b>
+        <b style="--x:82;--y:36;--w:16;--d:3.64s"></b>
+      </div>
+      <span class="demo-lab l">ta voix</span><span class="demo-lab r">ton morceau</span>
+    </div>
+    <ol class="how">
+      <li><span>1</span>Chante ton idée</li>
+      <li><span>2</span>Choisis style et instrument</li>
+      <li><span>3</span>Partage ta vidéo</li>
+    </ol>
     <div class="choices">
       <button class="choice main" id="go-mel">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
-        <span><b>Crée une mélodie</b><small>Chante ou fredonne ton idée</small></span>
+        <span><b>Chante ton idée</b><small>5 à 30 secondes suffisent</small></span>
       </button>
     </div>
     <p class="fine">Tout se passe sur ton téléphone. Rien n'est envoyé.</p>
@@ -742,7 +776,7 @@ const DSP = (function(){
   const S={raw:[],t0:0,baseBpm:92,bpm:92,notes:[],total:64,key:{tonic:9,minor:true},chords:[],byStep:{},
            style:'hiphop',drums:{k:[],s:[],h:[]},on:{drums:true,bass:true,chords:true,lead:true,voice:false},
            fix:true,corr:'light',tf:1,voiceBuf:null,shift:0,mode:'full',inst:'elec',oct:0,sel:-1,level:0,track:null};
-  const INSTS=[['piano','Piano'],['flute','Flûte'],['violon','Violon'],['cuivres','Cuivres'],['guitare','Guitare'],['elec','Guitare électrique'],['synth','Synthé']];
+  const INSTS=[['piano','Piano'],['flute','Flûte'],['violon','Violon'],['cuivres','Cuivres'],['guitare','Guitare'],['elec','Guitare électrique'],['synth','Synthé'],['batterie','Batterie']];
 
   function loadExample(){
     const step=60/92/4;
@@ -956,7 +990,25 @@ const DSP = (function(){
     g.gain.value=level; o.connect(g); g.connect(dest); o.start(t); o.stop(end);
     return o;
   }
+  // "Batterie": each sung note becomes a tom tuned to it, so the melody is played on drums
+  function tom(t,midi,dur){
+    let m=midi; while(m>62) m-=12; while(m<43) m+=12;   // into the toms' range, keeping the tune
+    const f0=mtof(m), len=Math.min(0.55,Math.max(0.18,dur+0.12));
+    const body=ctx.createOscillator(), bg=ctx.createGain();
+    body.type='sine'; body.frequency.setValueAtTime(f0*1.6,t); body.frequency.exponentialRampToValueAtTime(f0,t+0.06);
+    bg.gain.setValueAtTime(0.0001,t); bg.gain.linearRampToValueAtTime(0.7,t+0.003); bg.gain.exponentialRampToValueAtTime(0.0001,t+len);
+    body.connect(bg); bg.connect(bus.lead); body.start(t); body.stop(t+len+0.02);
+    const sk=ctx.createOscillator(), sg=ctx.createGain();   // drum-head overtone
+    sk.type='triangle'; sk.frequency.setValueAtTime(f0*2.3,t); sk.frequency.exponentialRampToValueAtTime(f0*1.6,t+0.05);
+    sg.gain.setValueAtTime(0.15,t); sg.gain.exponentialRampToValueAtTime(0.0001,t+0.12);
+    sk.connect(sg); sg.connect(bus.lead); sk.start(t); sk.stop(t+0.14);
+    const n=ctx.createBufferSource(), nf=ctx.createBiquadFilter(), ng=ctx.createGain();   // stick attack
+    n.buffer=noise; nf.type='bandpass'; nf.frequency.value=2600; nf.Q.value=0.8;
+    ng.gain.setValueAtTime(0.28,t); ng.gain.exponentialRampToValueAtTime(0.0001,t+0.025);
+    n.connect(nf); nf.connect(ng); ng.connect(bus.lead); n.start(t); n.stop(t+0.03);
+  }
   function lead(t,midi,dur){
+    if(S.inst==='batterie'){ tom(t,midi,dur); return; }
     if(smp(S.inst,t,bus.lead,0.55,midi,dur)) return;
     const f0=mtof(midi), f=ctx.createBiquadFilter(), g=ctx.createGain();
     f.type='lowpass'; f.connect(g); g.connect(bus.lead);
@@ -1521,7 +1573,7 @@ const DSP = (function(){
     };
     const us=Math.round(60000000/S.bpm);
     const t0=mk('Chante ton beat'); t0.push([0,0,[0xFF,0x51,3,(us>>16)&255,(us>>8)&255,us&255]],[0,0,[0xFF,0x58,4,4,2,24,8]]);
-    const PROG={piano:0,flute:73,violon:40,cuivres:61,guitare:24,elec:30,synth:80};
+    const PROG={piano:0,flute:73,violon:40,cuivres:61,guitare:24,elec:30,synth:80,batterie:117};   // 117: Melodic Tom
     const mel=mk('Melodie'); mel.push([0,0,[0xC0,PROG[S.inst]||0]]);
     for(const n of S.notes) note(mel,0,n.start*T,n.len*T,n.midi+S.shift+12*S.oct,96);
     const ch=mk('Accords'); ch.push([0,0,[0xC1,({power:30,strings:48,brass:61,pad:89}[st.ck])||4]]);
