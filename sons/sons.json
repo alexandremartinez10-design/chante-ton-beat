@@ -1,0 +1,77 @@
+{
+ "kick": {
+  "file": "kick.wav",
+  "gain": 0.6
+ },
+ "snare": {
+  "file": "snare.wav",
+  "gain": 0.6
+ },
+ "hat": {
+  "file": "hat.wav",
+  "gain": 0.6
+ },
+ "hat-open": {
+  "file": "hat-open.wav",
+  "gain": 0.6
+ },
+ "kick-rock": {
+  "file": "kick-rock.wav",
+  "gain": 1.2
+ },
+ "snare-rock": {
+  "file": "snare-rock.wav",
+  "gain": 1.2
+ },
+ "hat-rock": {
+  "file": "hat-rock.wav",
+  "gain": 1.2
+ },
+ "piano": [
+  {
+   "file": "piano-48.wav",
+   "root": 48,
+   "gain": 2
+  },
+  {
+   "file": "piano-55.wav",
+   "root": 55,
+   "gain": 2
+  },
+  {
+   "file": "piano-60.wav",
+   "root": 60,
+   "gain": 2
+  },
+  {
+   "file": "piano-67.wav",
+   "root": 67,
+   "gain": 2
+  },
+  {
+   "file": "piano-72.wav",
+   "root": 72,
+   "gain": 2
+  },
+  {
+   "file": "piano-79.wav",
+   "root": 79,
+   "gain": 2
+  },
+  {
+   "file": "piano-84.wav",
+   "root": 84,
+   "gain": 2
+  },
+  {
+   "file": "piano-91.wav",
+   "root": 91,
+   "gain": 2
+  },
+  {
+   "file": "piano-96.wav",
+   "root": 96,
+   "gain": 2
+  }
+ ]
+}

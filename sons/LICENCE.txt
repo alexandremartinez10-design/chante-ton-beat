@@ -1,0 +1,11 @@
+Sons libres de droits (CC0 1.0, domaine public), retouchés (mono, coupe, niveau) pour Chante ton beat.
+
+Batterie : stargate-sample-pack — https://github.com/stargatedaw/stargate-sample-pack (CC0)
+  kick.wav, snare.wav, hat.wav      <- microlag/One-Shots/Drums/Kick1, Snare1, Hihat1
+  hat-open.wav                      <- fugue-state-audio/drums/hihats/x0xproc1-hatopen
+  kick-rock.wav                     <- karoryfer/kicks/kick_Szpaderski_24_dampened
+  snare-rock.wav                    <- karoryfer/snares/snare_10x6
+  hat-rock.wav                      <- karoryfer/hihats/hihat_BRD_closed
+
+Piano : VCSL (Versilian Community Sample Library) — https://github.com/sgossner/VCSL (CC0)
+  piano-NN.wav (NN = note MIDI)     <- Chordophones/Zithers/Upright Piano, Yamaha/Sustains/Upright1_Sus_*_vl2_rr1

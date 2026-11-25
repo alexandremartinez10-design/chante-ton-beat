@@ -942,7 +942,7 @@ const DSP = (function(){
     epique:{name:'Épique (musique de film)',swing:0,k:[0,6,8,14],s:[4,12,15],h:[],bass:[[0,8],[8,8]],bk:'cello',ch:[[0,6],[6,2],[8,6],[14,2]],ck:'brass',ost:[0,2,3,4,6,7,8,10,11,12,14,15],crash:true,inst:'cuivres',kit:'big'},
     house:{name:'House',swing:0,k:[0,4,8,12],s:[4,12],h:[2,6,10,14],bass:[[2,2],[6,2],[10,2],[14,2]],bk:'tri',ch:[[2,1],[6,1],[11,1],[14,1]],ck:'stab',open:true,inst:'synth'},
     reggaeton:{name:'Reggaeton',swing:0,k:[0,4,8,12],s:[3,6,11,14],h:E8,bass:[[0,3],[3,3],[8,3],[11,3]],bk:'tri',ch:[[0,3],[6,2],[8,3],[14,2]],ck:'stab',inst:'piano'},
-    lofi:{name:'Lo-fi',swing:.2,k:[0,10],s:[4,12],h:E8,bass:[[0,6],[10,4]],bk:'tri',ch:[[0,16]],ck:'pad',kit:'soft',inst:'piano'}
+    lofi:{name:'Lo-fi',swing:.2,k:[0,10],s:[4,12],h:E8,bass:[[0,6],[10,4]],bk:'tri',ch:[[0,16]],ck:'pad',kit:'soft',inst:'piano',pianoChords:true}
   };
   const TRACKS=[['drums','Batterie'],['bass','Basse'],['chords','Accords'],['lead','Mélodie'],['voice','Ma voix']];
 
@@ -1039,18 +1039,26 @@ const DSP = (function(){
       const list=await r.json();
       const OC=window.OfflineAudioContext||window.webkitOfflineAudioContext; if(!OC) return;
       const dc=new OC(1,2,44100);
-      await Promise.all(Object.entries(list).map(async([name,v])=>{
+      const load=async v=>{
         const o=typeof v==='string'?{file:v}:v;
+        const ab=await (await fetch('sons/'+o.file)).arrayBuffer();
+        const buf=await new Promise((res,rej)=>{ const p=dc.decodeAudioData(ab,res,rej); if(p&&p.catch) p.catch(rej); });
+        return {buf,root:o.root!=null?o.root:60,gain:o.gain!=null?o.gain:1};
+      };
+      // an instrument can list several recorded notes: each played note uses the closest one
+      await Promise.all(Object.entries(list).map(async([name,v])=>{
         try{
-          const ab=await (await fetch('sons/'+o.file)).arrayBuffer();
-          const buf=await new Promise((res,rej)=>{ const p=dc.decodeAudioData(ab,res,rej); if(p&&p.catch) p.catch(rej); });
-          SMP[name]={buf,root:o.root!=null?o.root:60,gain:o.gain!=null?o.gain:1};
+          if(Array.isArray(v)){
+            const zones=(await Promise.all(v.map(z=>load(z).catch(()=>null)))).filter(Boolean);
+            if(zones.length) SMP[name]={zones};
+          } else SMP[name]=await load(v);
         }catch(e){}
       }));
     }catch(e){}
   }
   function smp(name,t,dest,level,midi,dur){
-    const s0=SMP[name]; if(!s0) return false;
+    let s0=SMP[name]; if(!s0) return false;
+    if(s0.zones){ const m=midi!=null?midi:60; s0=s0.zones.reduce((a,b)=>Math.abs(b.root-m)<Math.abs(a.root-m)?b:a); }
     const src=ctx.createBufferSource(), g=ctx.createGain(), v=level*s0.gain;
     src.buffer=s0.buf; if(midi!=null) src.playbackRate.value=Math.pow(2,(midi-s0.root)/12);
     g.gain.setValueAtTime(v,t);
@@ -1125,6 +1133,8 @@ const DSP = (function(){
     o.connect(f); f.connect(g); g.connect(bus.bass); o.start(t); o.stop(t+dur+0.35);
   }
   function chord(t,midis,dur,kind){
+    // lo-fi: real piano chords when the piano samples are there
+    if(kind==='pad' && STYLES[S.style].pianoChords && SMP.piano){ for(const m of midis) smp('piano',t,bus.chords,0.24,m,dur); return; }
     const f=ctx.createBiquadFilter(); f.type='lowpass';
     const g=ctx.createGain(); f.connect(g);
     let type='sawtooth', spread=10, tail=0.5, dest=bus.chords;
@@ -2210,7 +2220,7 @@ const DSP = (function(){
   $('b-dl').addEventListener('click',bbExportWav);
   $('b-share').addEventListener('click',()=>shareFile(beatBlob,()=>beatCache&&beatCache.sig===beatSig(),'mon-beat.wav'));
   loadSamples();
-  window.__ctb={smp:()=>Object.keys(SMP),scr:()=>scr,clarity:()=>tempoClarity(S.raw),render:renderSong,setHear,S,BB};
+  window.__ctb={smp:()=>Object.keys(SMP),scr:()=>scr,clarity:()=>tempoClarity(S.raw),render:renderSong,setHear,SMP,S,BB};
 
 
   window.addEventListener('resize',()=>draw(position()));
