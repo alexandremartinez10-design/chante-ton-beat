@@ -116,6 +116,9 @@ p{margin:0}
 .panel3{display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:22px;background:var(--surface)}
 .panel3 p{font-size:15px;color:var(--muted)}
 .vidbtn{min-height:64px;font-size:19px}
+select.bigsel{min-height:58px;border-radius:18px;font-size:17px;font-weight:750;padding:0 16px;background:var(--surface);
+  appearance:none;-webkit-appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+  background-position:calc(100% - 24px) 50%,calc(100% - 17px) 50%;background-size:7px 7px;background-repeat:no-repeat;padding-right:44px}
 
 /* video maker: full-screen sheet with the live preview */
 .vid{position:fixed;inset:0;z-index:10;background:rgba(5,5,8,.94);display:flex;align-items:center;justify-content:center;padding:max(14px,env(safe-area-inset-top)) 16px max(14px,env(safe-area-inset-bottom))}
@@ -260,15 +263,8 @@ select{font:inherit;font-weight:650;color:var(--text);width:100%;min-height:48px
     <p class="label">Instrument</p>
     <div class="chips" id="insts"></div>
     <p class="label">Style</p>
-    <div class="seg" id="m-styles">
-      <button data-s="hiphop">Hip-hop</button>
-      <button data-s="lofi">Lo-fi</button>
-      <button data-s="house">Pop / House</button>
-    </div>
-    <div class="pair">
-      <button class="sec" id="m-tempo" aria-expanded="false" aria-controls="m-tpanel">Tempo</button>
-      <button class="sec" id="m-again">Recommencer</button>
-    </div>
+    <select id="genre" class="bigsel" aria-label="Style"></select>
+    <button class="sec" id="m-tempo" aria-expanded="false" aria-controls="m-tpanel">Tempo</button>
     <div class="panel3" id="m-tpanel" hidden>
       <p>Le rythme va trop vite ou trop lentement par rapport à ta voix ? Écoute les trois.</p>
       <div class="seg" id="m-tf">
@@ -333,8 +329,6 @@ select{font:inherit;font-weight:650;color:var(--text);width:100%;min-height:48px
           </div>
         </section>
         <section class="panel">
-          <h2>Tous les genres</h2>
-          <select id="genre" aria-label="Genre"></select>
           <h2>Pistes</h2>
           <div class="chips" id="mix"></div>
         </section>
@@ -1430,7 +1424,7 @@ const DSP = (function(){
   for(const id in STYLES){
     const o=document.createElement('option'); o.value=id; o.textContent=STYLES[id].name; sc.appendChild(o);
   }
-  sc.addEventListener('change',()=>{ setStyle(sc.value); refresh(); });
+  sc.addEventListener('change',()=>{ setStyle(sc.value); refresh(); if(!playing){ try{ play(); }catch(e){} } });
   const ic=$('insts');
   for(const [id,label] of INSTS){
     const b=document.createElement('button'); b.className='chip'; b.dataset.id=id; b.textContent=label;
@@ -2142,7 +2136,6 @@ const DSP = (function(){
   function tfBy(f){ const np=S.bpm*f, nb=S.baseBpm*f; if(np<40||np>220||nb<40||nb>220) return false; S.tf=(S.tf||1)*f; regrid(f); return true; }
   function openTempo(open){ $('m-tpanel').hidden=!open; $('m-tempo').setAttribute('aria-expanded',String(open)); }
   function uiRefresh(){
-    document.querySelectorAll('#m-styles button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.s===S.style)));
     const hm=hearMode();
     document.querySelectorAll('#m-hear button').forEach(b=>{ b.setAttribute('aria-pressed',String(b.dataset.h===hm)); b.disabled=b.dataset.h!=='inst'&&!S.voiceBuf; });
     const tf=S.tf||1, base=S.bpm/tf;
@@ -2361,9 +2354,6 @@ const DSP = (function(){
   $('go-beat').addEventListener('click',()=>go('brec'));
   document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.go)));
   $('file').addEventListener('click',()=>{ try{ unlockSound(); ensureCtx(); const p=ctx.resume(); if(p&&p.catch) p.catch(()=>{}); }catch(e){} });
-  document.querySelectorAll('#m-styles button').forEach(b=>b.addEventListener('click',()=>{
-    setStyle(b.dataset.s); refresh(); if(!playing){ try{ play(); }catch(e){} }
-  }));
   document.querySelectorAll('#m-hear button').forEach(b=>b.addEventListener('click',()=>{
     setHear(b.dataset.h); if(!playing){ try{ play(); }catch(e){} }
   }));
@@ -2374,7 +2364,6 @@ const DSP = (function(){
     if(!playing){ try{ play(); }catch(e){} }
     refresh(); say('Tempo : '+Math.round(S.bpm)+' BPM.');
   }));
-  $('m-again').addEventListener('click',()=>go('mrec'));
   $('m-dl').addEventListener('click',exportWav);
   $('m-share').addEventListener('click',()=>shareFile(songBlob,()=>songCache&&songCache.sig===songSig(),'chante-ton-beat.wav'));
   document.querySelectorAll('#b-kits button').forEach(b=>b.addEventListener('click',()=>{
