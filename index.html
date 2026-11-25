@@ -188,7 +188,7 @@ select{font:inherit;font-weight:650;color:var(--text);width:100%;min-height:48px
   <section class="scr" id="s-mrec" hidden>
     <nav class="top"><button class="back" data-go="home" aria-label="Retour">←</button><span>Mélodie</span></nav>
     <div class="stage">
-      <p class="say" id="m-say">Touche le bouton et chante ton idée</p>
+      <p class="say" id="m-say">Touche, attends 4 clics, puis chante ton idée</p>
       <button class="mic" id="recbtn" aria-label="Enregistrer">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
         <span class="sq"></span>
@@ -242,6 +242,12 @@ select{font:inherit;font-weight:650;color:var(--text);width:100%;min-height:48px
     <div class="meta"><span><b id="rd-bpm">92</b> BPM</span><span id="r-key">La mineur</span><span><b id="r-bars">4</b> mesures</span></div>
     <p class="msg" id="m-msg" role="status"></p>
     <div class="playrow"><button class="playbtn" id="play" aria-pressed="false" aria-label="Jouer"></button></div>
+    <p class="label">On entend</p>
+    <div class="seg" id="m-hear">
+      <button data-h="voice">Ma voix</button>
+      <button data-h="both">Voix + instru</button>
+      <button data-h="inst">Instrument</button>
+    </div>
     <p class="label">Style</p>
     <div class="seg" id="m-styles">
       <button data-s="hiphop">Hip-hop</button>
@@ -951,7 +957,7 @@ const DSP = (function(){
   function loadExample(){
     const step=60/92/4;
     S.raw=EX.map(e=>({t:e[0]*step,d:e[1]*step*0.92,midi:e[2]}));
-    S.t0=0; S.baseBpm=92; S.bpm=92; S.voiceBuf=null; S.on.voice=false; S.track=null;
+    S.t0=0; S.baseBpm=92; S.bpm=92; S.voiceBuf=null; S.on.voice=false; S.on.lead=true; S.track=null;
   }
   function setStyle(id){
     S.style=id; const st=STYLES[id]; S.inst=st.inst;
@@ -989,7 +995,7 @@ const DSP = (function(){
     const b={};
     const comp=c.createDynamicsCompressor(); comp.connect(c.destination);
     const master=c.createGain(); master.gain.value=0.85; master.connect(comp);
-    for(const [id] of TRACKS){ b[id]=c.createGain(); b[id].gain.value=S.on[id]?1:0; b[id].connect(master); }
+    for(const [id] of TRACKS){ b[id]=c.createGain(); b[id].gain.value=trackGain(id); b[id].connect(master); }
     b.click=c.createGain(); b.click.connect(c.destination);
     const nz=c.createBuffer(1,c.sampleRate,c.sampleRate);
     const d=nz.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
@@ -1010,6 +1016,14 @@ const DSP = (function(){
     return {bus:b,noise:nz,distChord:dc,distLead:dl};
   }
   function useRig(r){ bus=r.bus; noise=r.noise; distChord=r.distChord; distLead=r.distLead; }
+  // Mix levels: the melody (the singer's voice or its instrument) sits in front, the backing stays behind it.
+  const MIX={drums:0.25,bass:0.27,chords:0.24,lead:2.3,voice:1};
+  function trackGain(id){
+    if(!S.on[id]) return 0;
+    if(id==='lead' && S.on.voice && S.voiceBuf) return MIX.lead*0.45;   // instrument doubling the voice: quieter
+    return MIX[id];
+  }
+  function applyMix(){ for(const [id] of TRACKS) if(bus[id]) bus[id].gain.value=trackGain(id); }
 
   /* ---------- optional real samples (CC0 files placed next to the page) ---------- */
   // sons/sons.json lists the files, for example:
@@ -1208,6 +1222,23 @@ const DSP = (function(){
     src.start(t,Math.min(off,S.voiceBuf.duration-0.01),len);
     if(!exporting) voiceSrc=src;
   }
+  // Bring the take to a steady level so the voice sits over the beat whatever the phone's mic gain.
+  function normVoice(buf){
+    let peak=0;
+    for(let c=0;c<buf.numberOfChannels;c++){ const d=buf.getChannelData(c); for(let i=0;i<d.length;i++){ const a=Math.abs(d[i]); if(a>peak) peak=a; } }
+    const g=peak>0?Math.min(10,0.8/peak):1;
+    if(Math.abs(g-1)>0.02) for(let c=0;c<buf.numberOfChannels;c++){ const d=buf.getChannelData(c); for(let i=0;i<d.length;i++) d[i]*=g; }
+    return buf;
+  }
+  function hearMode(){ return !S.voiceBuf||!S.on.voice ? 'inst' : S.on.lead ? 'both' : 'voice'; }
+  function setHear(h){
+    if(!S.voiceBuf) h='inst';
+    S.on.voice=h!=='inst'; S.on.lead=h!=='voice';
+    applyMix();
+    if(playing && S.on.voice && !voiceSrc){ stop(); play(); }
+    if(!S.on.voice && voiceSrc){ try{voiceSrc.stop();}catch(e){} voiceSrc=null; }
+    refresh();
+  }
   function scheduleStep(i,t){
     const st=STYLES[S.style], sd=stepDur(), tt=t+((i%2)?st.swing*sd:0), s=i%16;
     const c=S.chords[Math.floor(i/16)]||S.chords[0];
@@ -1386,7 +1417,7 @@ const DSP = (function(){
     const b=document.createElement('button'); b.className='chip'; b.dataset.id=id; b.textContent=label;
     b.addEventListener('click',()=>{
       S.on[id]=!S.on[id];
-      if(bus[id]) bus[id].gain.value=S.on[id]?1:0;
+      applyMix();
       refresh();
     });
     mx.appendChild(b);
@@ -1470,7 +1501,7 @@ const DSP = (function(){
     try{ await analyseAndLoad(buf,0); } finally { e.target.value=''; }
   };
   /* ---------- live microphone ---------- */
-  const R={count:false,click:false,bpm:90};
+  const R={count:true,click:false,bpm:90};
   let rec=null, warm=null, CAL=null;
   try{ const c=JSON.parse(localStorage.getItem('ctb-cal')||'null'); if(c && typeof c.level==='number'){ CAL=c; S.level=c.level; } }catch(e){}
   function recUi(){
@@ -1526,7 +1557,7 @@ const DSP = (function(){
     try{ r.stream.getTracks().forEach(t=>t.stop()); }catch(e){}
     try{ if(navigator.audioSession) navigator.audioSession.type='playback'; }catch(e){}
     const b=$('recbtn'); b.classList.remove('rec','beat'); meterOff();
-    $('m-say').textContent='Touche le bouton et chante ton idée'; $('m-time').textContent='0:00';
+    $('m-say').textContent='Touche, attends 4 clics, puis chante ton idée'; $('m-time').textContent='0:00';
     if(r.cancel) return;
     if(r.first===null || ctx.currentTime<r.tStart){ status('Enregistrement annulé.'); return; }
     const skip=Math.max(0,Math.round((r.tStart-r.first)*r.sr)), len=r.got-skip;
@@ -1740,7 +1771,7 @@ const DSP = (function(){
       bus.drums.gain.value=1;
       const t=ctx.currentTime+0.02, kit=BB.kit||undefined;
       if(r==='k') kick(t,kit); else if(r==='s') snare(t,kit); else hat(t,false,kit);
-      if(!BB.playing) setTimeout(()=>{ if(!BB.playing && bus.drums) bus.drums.gain.value=S.on.drums?1:0; },900);
+      if(!BB.playing) setTimeout(()=>{ if(!BB.playing && bus.drums) applyMix(); },900);
     }catch(e){}
   }
   function bbRender(){
@@ -1809,7 +1840,7 @@ const DSP = (function(){
   function bbStop(){
     BB.playing=false; clearInterval(BB.timer);
     if(keepAlive){ try{keepAlive.pause();}catch(e){} }
-    if(bus&&bus.drums) bus.drums.gain.value=S.on.drums?1:0;
+    if(bus&&bus.drums) applyMix();
     $('bb-play').setAttribute('aria-pressed','false'); $('bb-play').setAttribute('aria-label','Jouer');
     bbMark(-1);
   }
@@ -1994,7 +2025,7 @@ const DSP = (function(){
     if(id!=='bres' && BB.playing) bbStop();
     document.querySelectorAll('.scr').forEach(s=>{ s.hidden=s.id!=='s-'+id; });
     const prev=scr; scr=id;
-    if(id==='mrec' && prev!=='wait'){ say(''); $('m-time').textContent='0:00'; $('m-say').textContent='Touche le bouton et chante ton idée'; }
+    if(id==='mrec' && prev!=='wait'){ say(''); $('m-time').textContent='0:00'; $('m-say').textContent='Touche, attends 4 clics, puis chante ton idée'; }
     if(id==='brec' && prev!=='wait'){ say(''); $('b-time').innerHTML='&nbsp;'; $('b-say').textContent='Touche, attends 4 clics, puis fais ton beat'; }
     meterOff();
     window.scrollTo(0,0);
@@ -2050,7 +2081,7 @@ const DSP = (function(){
       const a=DSP.analyse(mono,buf.sampleRate,S.level,fixedBpm||0,CAL);
       if(a.raw.length<3) return fail(d.snr<16?TXT.noisy:d.p95<-42?TXT.quiet:'Pas de mélodie claire : chante ou fredonne plus franchement.');
       S.raw=a.raw; S.t0=a.t0; S.baseBpm=a.bpm; S.bpm=a.bpm; S.voiceBuf=buf; S.mode='full'; S.oct=0; S.sel=-1; S.track=a.track; S.tf=1;
-      S.on.voice=false; if(bus&&bus.voice) bus.voice.gain.value=0;
+      S.voiceBuf=normVoice(buf); S.on.voice=true; S.on.lead=false; applyMix();
       build(); refresh();
       await settle();
       go('mres');
@@ -2072,6 +2103,8 @@ const DSP = (function(){
   function openTempo(open){ $('m-tpanel').hidden=!open; $('m-tempo').setAttribute('aria-expanded',String(open)); }
   function uiRefresh(){
     document.querySelectorAll('#m-styles button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.s===S.style)));
+    const hm=hearMode();
+    document.querySelectorAll('#m-hear button').forEach(b=>{ b.setAttribute('aria-pressed',String(b.dataset.h===hm)); b.disabled=b.dataset.h!=='inst'&&!S.voiceBuf; });
     const tf=S.tf||1, base=S.bpm/tf;
     for(const [f,id] of [['1','tf1'],['0.5','tf05'],['2','tf2']]){
       const v=Math.round(base*+f), b=document.querySelector('#m-tf button[data-f="'+f+'"]');
@@ -2157,6 +2190,9 @@ const DSP = (function(){
   document.querySelectorAll('#m-styles button').forEach(b=>b.addEventListener('click',()=>{
     setStyle(b.dataset.s); refresh(); if(!playing){ try{ play(); }catch(e){} }
   }));
+  document.querySelectorAll('#m-hear button').forEach(b=>b.addEventListener('click',()=>{
+    setHear(b.dataset.h); if(!playing){ try{ play(); }catch(e){} }
+  }));
   $('m-tempo').addEventListener('click',()=>openTempo($('m-tpanel').hidden));
   document.querySelectorAll('#m-tf button').forEach(b=>b.addEventListener('click',()=>{
     const want=+b.dataset.f, k=want/(S.tf||1);
@@ -2174,7 +2210,7 @@ const DSP = (function(){
   $('b-dl').addEventListener('click',bbExportWav);
   $('b-share').addEventListener('click',()=>shareFile(beatBlob,()=>beatCache&&beatCache.sig===beatSig(),'mon-beat.wav'));
   loadSamples();
-  window.__ctb={smp:()=>Object.keys(SMP),scr:()=>scr,clarity:()=>tempoClarity(S.raw),S,BB};
+  window.__ctb={smp:()=>Object.keys(SMP),scr:()=>scr,clarity:()=>tempoClarity(S.raw),render:renderSong,setHear,S,BB};
 
 
   window.addEventListener('resize',()=>draw(position()));
