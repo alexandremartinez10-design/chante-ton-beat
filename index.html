@@ -257,6 +257,8 @@ select{font:inherit;font-weight:650;color:var(--text);width:100%;min-height:48px
       <button data-h="both">Voix + instru</button>
       <button data-h="inst">Instrument</button>
     </div>
+    <p class="label">Instrument</p>
+    <div class="chips" id="insts"></div>
     <p class="label">Style</p>
     <div class="seg" id="m-styles">
       <button data-s="hiphop">Hip-hop</button>
@@ -333,8 +335,6 @@ select{font:inherit;font-weight:650;color:var(--text);width:100%;min-height:48px
         <section class="panel">
           <h2>Tous les genres</h2>
           <select id="genre" aria-label="Genre"></select>
-          <h2>Instrument de la mélodie</h2>
-          <div class="chips" id="insts"></div>
           <h2>Pistes</h2>
           <div class="chips" id="mix"></div>
         </section>
@@ -976,7 +976,7 @@ const DSP = (function(){
 
   const S={raw:[],t0:0,baseBpm:92,bpm:92,notes:[],total:64,key:{tonic:9,minor:true},chords:[],byStep:{},
            style:'hiphop',drums:{k:[],s:[],h:[]},on:{drums:true,bass:true,chords:true,lead:true,voice:false},
-           fix:true,corr:'light',tf:1,voiceBuf:null,shift:0,mode:'full',inst:'piano',oct:0,sel:-1,level:0,track:null};
+           fix:true,corr:'light',tf:1,voiceBuf:null,shift:0,mode:'full',inst:'elec',oct:0,sel:-1,level:0,track:null};
   const INSTS=[['piano','Piano'],['flute','Flûte'],['violon','Violon'],['cuivres','Cuivres'],['guitare','Guitare'],['elec','Guitare électrique'],['synth','Synthé']];
 
   function loadExample(){
@@ -985,7 +985,7 @@ const DSP = (function(){
     S.t0=0; S.baseBpm=92; S.bpm=92; S.voiceBuf=null; S.on.voice=false; S.on.lead=true; S.track=null;
   }
   function setStyle(id){
-    S.style=id; const st=STYLES[id]; S.inst=st.inst;
+    S.style=id; const st=STYLES[id];   // the instrument stays the one the user picked
     for(const r of ['k','s','h']){ S.drums[r]=new Array(16).fill(false); st[r].forEach(i=>S.drums[r][i]=true); }
   }
   function build(){
@@ -1434,7 +1434,12 @@ const DSP = (function(){
   const ic=$('insts');
   for(const [id,label] of INSTS){
     const b=document.createElement('button'); b.className='chip'; b.dataset.id=id; b.textContent=label;
-    b.addEventListener('click',()=>{ S.inst=id; refresh(); }); ic.appendChild(b);
+    b.addEventListener('click',()=>{
+      S.inst=id;
+      if(hearMode()==='voice') setHear('both');   // make the chosen instrument heard
+      refresh();
+      if(!playing){ try{ play(); }catch(e){} }
+    }); ic.appendChild(b);
   }
   document.querySelectorAll('#modes .chip').forEach(b=>b.addEventListener('click',()=>{ S.mode=b.dataset.mode; refresh(); }));
   $('octdown').addEventListener('click',()=>{ S.oct=Math.max(-2,S.oct-1); });
@@ -2116,7 +2121,7 @@ const DSP = (function(){
       const a=DSP.analyse(mono,buf.sampleRate,S.level,fixedBpm||0,CAL);
       if(a.raw.length<3) return fail(d.snr<16?TXT.noisy:d.p95<-42?TXT.quiet:'Pas de mélodie claire : chante ou fredonne plus franchement.');
       S.raw=a.raw; S.t0=a.t0; S.baseBpm=a.bpm; S.bpm=a.bpm; S.voiceBuf=buf; S.mode='full'; S.oct=0; S.sel=-1; S.track=a.track; S.tf=1;
-      S.voiceBuf=normVoice(buf); S.on.voice=true; S.on.lead=false; applyMix();
+      S.voiceBuf=normVoice(buf); S.on.voice=true; S.on.lead=true; applyMix();
       build(); refresh();
       await settle();
       go('mres');
